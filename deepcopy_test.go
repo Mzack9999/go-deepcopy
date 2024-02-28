@@ -4,6 +4,7 @@ import (
 	"fmt"
 	. "reflect"
 	"testing"
+	"time"
 )
 
 func ExampleAnything() {
@@ -45,9 +46,10 @@ type Foo struct {
 }
 
 func ExampleMap() {
+	foo := Foo{}
 	x := map[string]*Foo{
-		"foo": &Foo{Bar: 1},
-		"bar": &Foo{Bar: 2},
+		"foo": {Foo: &foo, Bar: 1},
+		"bar": {Foo: &foo, Bar: 2},
 	}
 	y := MustAnything(x).(map[string]*Foo)
 	for _, k := range []string{"foo", "bar"} { // to ensure consistent order
@@ -122,6 +124,54 @@ func TestUnsupportedKindPanicsOnMust(t *testing.T) {
 	MustAnything(x)
 }
 
+type InterfaceA interface {
+}
+
+type StructA struct {
+	A InterfaceA
+	B InterfaceA
+}
+
+func TestStructNilMember(t *testing.T) {
+	testStruct := StructA{
+		B: "b",
+	}
+
+	copied, err := Anything(testStruct)
+	if err != nil {
+		t.Errorf("must not have error")
+	}
+
+	if copied != testStruct {
+		t.Errorf("must be equal")
+	}
+}
+
+type StructB struct {
+	a string
+}
+
+func ExampleStructUnexportedMember() {
+	testStruct := StructB{
+		a: "a",
+	}
+
+	_, err := Anything(testStruct)
+	fmt.Println(err)
+	// Output:
+	// failed to copy the field a in the struct deepcopy.StructB{a:"a"}: field is unexported
+}
+
+func ExampleArray() {
+	arr := []any{"a", 1, nil, StructA{B: "b"}}
+	cloned, err := Anything(arr)
+	fmt.Println(err)
+	fmt.Println(cloned)
+	// Output:
+	// <nil>
+	// [a 1 <nil> {<nil> b}]
+}
+
 func TestMismatchedTypesFail(t *testing.T) {
 	tests := []struct {
 		input interface{}
@@ -161,8 +211,8 @@ func TestTwoNils(t *testing.T) {
 		B int
 	}
 	type FooBar struct {
-		Foo *Foo
-		Bar *Bar
+		Foo  *Foo
+		Bar  *Bar
 		Foo2 *Foo
 		Bar2 *Bar
 	}
@@ -178,4 +228,30 @@ func TestTwoNils(t *testing.T) {
 		t.Errorf("expect %v == %v; ", src, dst)
 	}
 
+}
+
+func TestImmutableTypes(t *testing.T) {
+	type Foo struct {
+		Time    time.Time
+		TimePtr *time.Time
+	}
+
+	now := time.Now()
+
+	src := &Foo{
+		Time:    time.Now(),
+		TimePtr: &now,
+	}
+
+	RegisterImmutableType(TypeOf(time.Time{}))
+
+	dst := MustAnything(src)
+
+	if src.TimePtr == dst.(*Foo).TimePtr {
+		t.Error("expect pointers to different time structs")
+	}
+
+	if !DeepEqual(src, dst) {
+		t.Errorf("expect %v == %v; ", src, dst)
+	}
 }
